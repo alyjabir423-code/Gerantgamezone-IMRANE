@@ -1,6 +1,6 @@
 // Historique prive Patron / partage Gerant — version 49
-const CACHE='gamezone-58-alarms-bonus-20261009';
-const ASSETS=['./','./index.html','./manifest.webmanifest'];
+const CACHE='gamezone-bah-v65-20261016-minutes5-gerant-serveur-push';
+const ASSETS=['./','./index.html','./manifest.webmanifest','./management.js','./custom-time.js'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
 });
@@ -20,4 +20,21 @@ self.addEventListener('fetch',event=>{
   event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(r=>{
     const copy=r.clone(); caches.open(CACHE).then(c=>c.put(event.request,copy)); return r;
   })));
+});
+
+// Notifications push: nécessite un abonnement Push enregistré côté serveur et un envoi authentifié.
+self.addEventListener('push', event => {
+  let payload={};
+  try { payload=event.data ? event.data.json() : {}; } catch (_) { payload={body:event.data ? event.data.text() : ''}; }
+  const title=String(payload.title||'GameZone Bah');
+  const options={body:String(payload.body||'Nouvel événement GameZone'),tag:String(payload.eventId||payload.tag||'gamezone-event'),renotify:true,vibrate:[200,100,250],requireInteraction:!!payload.important,data:{url:payload.url||'./'}};
+  event.waitUntil(self.registration.showNotification(title,options));
+});
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target=new URL(event.notification.data?.url||'./',self.registration.scope).href;
+  event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async windows=>{
+    for(const client of windows){if(client.url.startsWith(self.registration.scope)){await client.focus();return;}}
+    return self.clients.openWindow(target);
+  }));
 });
