@@ -3388,7 +3388,7 @@ async function gzFinishExpiredG(i,p){
       root.closed_sessions=root.closed_sessions||{};
       const alreadyClosed=!!(sid&&root.closed_sessions[sid]);
       const cleared=blankRemoteActive(live);
-      cleared.cleanup=true;cleared.cleanupUntil=now+20000;cleared.sessionId=sid;
+      cleared.cleanup=false;cleared.cleanupUntil=0;cleared.sessionId='';cleared.expiredSessionId=sid;cleared.powerUnverified=true;
       rootWriteActive(root,snapshot,i,cleared);
       const ss=freshSessionSnapshotFromRoot(root);
       if(!alreadyClosed&&!live.bonusOnly)ss.count=Math.max(0,Number(ss.count)||0)+1;
@@ -3400,31 +3400,11 @@ async function gzFinishExpiredG(i,p){
     });
     if(!result||!result.committed){if(fbForcePoll)await fbForcePoll();return;}
     syncFromTransactionResult(result);
-    // V57 : ne pas retarder OFF pour mettre à jour les cartes, jouer une voix
-    // ou remplir l'historique ; ces actions ont lieu APRÈS la tentative physique.
-    // Commande OFF uniquement si la réservation de nettoyage appartient
-    // encore à CETTE séance (jamais à une séance suivante).
-    try{
-      // V57 : contrôle léger et ciblé (l'ancienne lecture de toute la salle retardait OFF).
-      // Poste%201 est une clé littérale Firebase : le % doit être encodé en %25 dans l'URL.
-      const node=fbRoot._rootPath+'/active_by_poste/'+encodeURIComponent(remotePostKey(snapshot.num));
-      const nowState=(await restFetchJson(restUrl(node))).data||{};
-      if(!nowState.actif&&nowState.cleanup&&nowState.sessionId===sid&&Date.now()<Number(nowState.cleanupUntil||0)){
-        if(resolvedDeviceId(snapshot)){
-          const off=await eteindrePrise(snapshot,'timer');
-          if(!off)showToast('⚠️ '+snapshot.num+' LIBRE, extinction prise non confirmée');
-        }
-      }
-    }catch(e){console.warn('Extinction après libération:',e);}
+    // Pas de commande électrique différée après la clôture.
     renderPostes();updateStats();
     gzSpeak('Temps terminé pour '+speechPosteName(snapshot.num)+'.');
-    gzTextVoiceNotify('GameZone — Fin de session',speechPosteName(snapshot.num)+' : temps terminé, télévision éteinte.','');
+    gzTextVoiceNotify('GameZone — Fin de session',speechPosteName(snapshot.num)+' : temps terminé, poste libre. État électrique à vérifier.','');
     addJournal('r',snapshot.num+' — Temps écoulé',(snapshot.client||'Client')+' · fin automatique',money(snapshot.montantSession)+' F','',{poste:snapshot.num,client:snapshot.client||'',sessionId:sid,typeActivite:'terminee_auto',tempsRestantSec:0,montant:money(snapshot.montantSession)});
-    try{await fbRoot.transaction(root=>{
-      root=root||{};const a=rootReadActive(root,snapshot,i)||{};
-      if(a.actif||!a.cleanup||a.sessionId!==sid)return undefined;
-      rootWriteActive(root,snapshot,i,{...a,cleanup:false,cleanupUntil:0,sessionId:'',updatedAt:Date.now()});return root;
-    });}catch(e){console.warn('Nettoyage fin de séance:',e);}
     if(fbForcePoll)await fbForcePoll();
   }catch(e){console.warn('Fin automatique poste:',e);showToast('⚠️ '+snapshot.num+' : fin Firebase à synchroniser');}
   finally{p._ending=false;}
@@ -3989,3 +3969,4 @@ window.GymProofFree=(function(){
 </script>
 </body>
 </html>
+
