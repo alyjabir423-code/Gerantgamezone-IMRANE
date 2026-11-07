@@ -1490,7 +1490,7 @@ async function tuyaCommand(poste, turnOn){
       gzTuyaError='Session Firebase absente';console.log('Commande Tuya bloquée : session Firebase absente');
       return false;
     }
-    const resp = await fetch(TUYA_WORKER_URL, {
+    const resp = await gzBoundedFetch(TUYA_WORKER_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1504,7 +1504,7 @@ async function tuyaCommand(poste, turnOn){
     try{ data=await resp.json(); }catch(e){}
     console.log('Tuya cloud response (via Worker):', data);
     if(!resp.ok||!data||!data.success){gzTuyaError=gzTuyaReason(resp,data,'Commande');return false;}
-    const confirmed=await gzVerifySwitchG(poste,turnOn);
+    const confirmed=(data.device?.online===true && data.device?.switchOn===turnOn) || await gzVerifySwitchG(poste,turnOn);
     if(!confirmed&&!gzTuyaError)gzTuyaError='Commande acceptée, état ON/OFF non confirmé';
     return confirmed;
   } catch(e){
@@ -1518,19 +1518,22 @@ async function tuyaCommand(poste, turnOn){
 function sleepMs(ms){return new Promise(function(resolve){setTimeout(resolve,ms);});}
 
 // V44: un succès HTTP du Worker signifie commande ACCEPTÉE, pas prise réellement ON/OFF.
-async function gzReadSwitchStateG(poste){
+async function gzBoundedFetch(url,options,budget=7000){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),budget);try{const r=await fetch(url,{...options,signal:controller.signal});const data=await r.json();return {ok:r.ok,status:r.status,json:async()=>data};}finally{clearTimeout(timer);}}
+async function gzReadSwitchStateG(poste,budget=2500){
   const devid=resolvedDeviceId(poste);if(!devid)return null;
   const token=await ensureFirebaseToken();if(!token)return null;
-  const r=await fetch(TUYA_WORKER_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-    body:JSON.stringify({tenantKey:currentTenantKey,action:'status',devid}),cache:'no-store'});
+  const r=await gzBoundedFetch(TUYA_WORKER_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+    body:JSON.stringify({tenantKey:currentTenantKey,action:'status',devid}),cache:'no-store'},budget);
   const d=await r.json().catch(()=>({}));
   if(!r.ok||!d.success||!d.device){gzTuyaError=gzTuyaReason(r,d,'Statut');return null;}
   return d.device.online!==false && typeof d.device.switchOn==='boolean'?d.device.switchOn:null;
 }
 async function gzVerifySwitchG(poste,expected){
+  const deadline=Date.now()+8000;
   for(let n=0;n<8;n++){
     if(n)await sleepMs(750);
-    try{const v=await gzReadSwitchStateG(poste);if(v===expected)return true;}
+    if(Date.now()>=deadline)return false;
+    try{const v=await gzReadSwitchStateG(poste,Math.max(1,Math.min(2500,deadline-Date.now())));if(v===expected)return true;}
     catch(e){console.log('Statut prise indisponible:',e);}
   }
   return false;
@@ -3967,6 +3970,8 @@ window.GymProofFree=(function(){
   else setTimeout(bind,0);
 })();
 </script>
+<script src="./click-feedback.js?v=20261107-1"></script>
 </body>
 </html>
+
 
