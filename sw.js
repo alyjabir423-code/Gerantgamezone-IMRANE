@@ -1,40 +1,11 @@
-// Historique prive Patron / partage Gerant — version 49
-const CACHE='gamezone-bah-v65-20261016-minutes5-gerant-serveur-push';
-const ASSETS=['./','./index.html','./manifest.webmanifest','./management.js','./custom-time.js'];
-self.addEventListener('install',event=>{
-  event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
-});
-self.addEventListener('activate',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
-});
-self.addEventListener('fetch',event=>{
-  if(event.request.method!=='GET') return;
-  const url=new URL(event.request.url);
-  if(url.origin!==self.location.origin) return;
-  if(event.request.mode==='navigate'){
-    event.respondWith(fetch(event.request).then(r=>{
-      const copy=r.clone(); caches.open(CACHE).then(c=>c.put('./index.html',copy)); return r;
-    }).catch(()=>caches.match('./index.html').then(r=>r||caches.match('./'))));
-    return;
-  }
-  event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(r=>{
-    const copy=r.clone(); caches.open(CACHE).then(c=>c.put(event.request,copy)); return r;
-  })));
-});
+const AUDIO_CACHE='imranne-audio-v2';const AUDIO_FILES=["./imranne-audio-start.mp3", "./imranne-audio-pause.mp3", "./imranne-audio-resume.mp3", "./imranne-audio-add.mp3", "./imranne-audio-subtract.mp3", "./imranne-audio-save.mp3", "./imranne-audio-restore.mp3", "./imranne-audio-off.mp3", "./imranne-audio-confirmed.mp3", "./imranne-audio-error.mp3", "./imranne-audio-five.mp3", "./imranne-audio-finish.mp3", "./imranne-audio-test.mp3"];
+// Audio caching is optional: one missing MP3 must not block notifications.
+self.addEventListener('install',e=>e.waitUntil(
+  caches.open(AUDIO_CACHE).then(c=>Promise.allSettled(AUDIO_FILES.map(file=>c.add(file))))
+    .catch(()=>{}).then(()=>self.skipWaiting())
+));
+self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.method!=='GET'||u.origin!==self.location.origin)return;if(/\/imranne-audio-[a-z]+\.mp3$/.test(u.pathname)){e.respondWith(caches.open(AUDIO_CACHE).then(async c=>(await c.match(e.request))||fetch(e.request)));}else e.respondWith(fetch(e.request,{cache:'no-store'}));});
+self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(self.clients.matchAll({type:'window'}).then(async rows=>{const row=rows.find(x=>x.url.startsWith(self.registration.scope));if(row)return row.focus();return self.clients.openWindow(self.registration.scope);}));});
 
-// Notifications push: nécessite un abonnement Push enregistré côté serveur et un envoi authentifié.
-self.addEventListener('push', event => {
-  let payload={};
-  try { payload=event.data ? event.data.json() : {}; } catch (_) { payload={body:event.data ? event.data.text() : ''}; }
-  const title=String(payload.title||'GameZone Bah');
-  const options={body:String(payload.body||'Nouvel événement GameZone'),tag:String(payload.eventId||payload.tag||'gamezone-event'),renotify:true,vibrate:[200,100,250],requireInteraction:!!payload.important,data:{url:payload.url||'./'}};
-  event.waitUntil(self.registration.showNotification(title,options));
-});
-self.addEventListener('notificationclick', event => {
-  event.notification.close();
-  const target=new URL(event.notification.data?.url||'./',self.registration.scope).href;
-  event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async windows=>{
-    for(const client of windows){if(client.url.startsWith(self.registration.scope)){await client.focus();return;}}
-    return self.clients.openWindow(target);
-  }));
-});
+
